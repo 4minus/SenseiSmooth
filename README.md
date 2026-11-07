@@ -1,80 +1,101 @@
-# Sensei Smooth – dynamischer Resonanz-Unterdrücker (VST3 / Standalone)
+# Sensei Smooth
 
-Eigenständige JUCE-8-Implementierung. Das Signal wird per STFT analysiert
-(sqrt-Hann, 75 % Overlap) und pro Frequenz-Bin mit einer weich geregelten
-Verstärkung bearbeitet.
+**Dynamic resonance suppressor by vierminus audio.**
 
-## Erkennung (Detect)
+Sensei Smooth is a JUCE-based VST3/Standalone effect that finds harsh, ringing frequencies
+and pulls them down only while they stick out, so the rest of the sound keeps its energy.
+It can also make room for another track via sidechain.
 
-- **Input** (Standard): Sensei Smooth sitzt als Insert auf der Spur und hört auf sein eigenes
-  Signal. Bins, die deutlich über eine geglättete Referenzkurve ihres eigenen
-  Spektrums hinausragen, werden abgesenkt. Kein Routing nötig.
-- **Sidechain** („Platz machen“): Sensei Smooth sitzt auf der Spur, die Platz machen soll
-  (z. B. Gitarre). Die Spur, die Platz braucht (z. B. Gesang), kommt über den
-  Sidechain-Eingang. Abgesenkt wird dort, wo die Sidechain lauter als die Threshold-Linie
-  ist *und* das Hauptsignal mit ihr konkurriert. Die Absenkung geht nur so weit, bis die
-  Sidechain im jeweiligen Band 6 dB vorne liegt. Ohne Sidechain-Signal passiert nichts
-  (die Anzeige meldet dann „No sidechain signal“).
+![Sensei Smooth](docs/screenshot.png)
 
-  In FL Studio: Gesangs-Spur im Mixer auswählen, Rechtsklick auf den Routing-Pfeil der
-  Gitarren-Spur → „Sidechain to this track“. Dann im Wrapper von Sensei Smooth (Zahnrad) den
-  Sidechain-Eingang dieser Spur zuweisen und Detect auf „Sidechain“ stellen.
+*Delta view: the yellow area is the signal that is being removed. The teal curve hanging from the top
+is the current reduction, and the purple line is the editable detection curve.*
 
-## Parameter
+## Current Highlights
 
-**Dynamics**
+- VST3 + Standalone build via CMake (JUCE 8.0.6)
+- Spectral (STFT) processing with smooth per-frequency gain, no phase smearing between dry and wet
+- **Input mode:** detects resonances relative to the track's own spectrum
+- **Sidechain mode:** cuts the track where another signal (e.g. vocals) needs space
+- Editable detection curve: drag points for range, emphasis and tilt directly in the display
+- Stereo Link, L / R, Mid / Side, Mid only, Side only
+- Delta listening with a live spectrum of the removed signal
+- Mix and output, latency reported to the host
+- Offline DSP test suite and an offscreen GUI snapshot tool
 
-| Parameter | Bereich | Wirkung |
-|-----------|---------|---------|
-| Amount    | 0–24 dB | maximale Absenkung pro Frequenz |
-| Precision | 0–100 % | Breite der Absenkung: 1/3 Oktave (weich) bis 1/24 Oktave (chirurgisch) |
-| Threshold | 0–100 % | Input: wie weit ein Peak herausragen muss (1,5–12 dB). Sidechain: Pegelschwelle der Sidechain (−90 bis −30 dB, gestrichelte Linie) |
-| Attack    | 0,5–100 ms | Ansprechzeit |
-| Release   | 5–1000 ms  | Rücklaufzeit |
-| Mix       | 0–100 % | Dry/Wet, phasengleich im Spektralbereich gemischt |
-| Output    | ±12 dB  | Ausgangspegel |
+## Quick Start
 
-**Detection** – direkt in der Anzeige über Punkte auf der lila Empfindlichkeitskurve
-(ziehen; Doppelklick setzt zurück; beim Überfahren erscheint der Wert)
+1. Put Sensei Smooth on the track that sounds harsh (insert, no routing needed).
+2. Turn up **Amount** until the harshness calms down.
+3. Use **Precision** for narrower or broader cuts, and **Threshold** to decide how much a peak must stick out.
+4. Switch on **Delta** to hear (and see) only what is being removed. If you hear musical content there, back off.
+5. Shape the detection in the display: pull the purple point up where it should work harder, down where it should leave things alone.
 
-| Punkt | Parameter | Bereich | Wirkung |
-|-------|-----------|---------|---------|
-| rote Balken | Low / High | 20 Hz–20 kHz | Bearbeitungsbereich (mit halb-oktavigen Übergängen) |
-| grüner Punkt (12 kHz) | Tilt | ±3 dB/Okt. | Empfindlichkeit kippen um 1 kHz (+ = Höhen werden stärker bearbeitet) |
-| lila Punkt | Emphasis Freq / Emphasis | 100 Hz–12 kHz / ±12 dB | Empfindlichkeit um eine Frequenz anheben/absenken (Glocke, ca. 1,2 Okt. breit) |
+## Controls
 
-Kurve oben = empfindlicher (mehr Absenkung), unten = weniger empfindlich.
+**Side panel** (ordered by importance)
 
-**Bedienung:** Die Regler rechts sind nach Wichtigkeit gestaffelt: Amount (groß) zuerst,
-dann Precision/Threshold, dann Attack/Release. Mix, Out und Delta sitzen in der unteren
-Leiste. Alle Regler haben Tooltips.
+| Control | Range | What it does |
+|---------|-------|--------------|
+| Amount | 0–24 dB | Maximum reduction per frequency. Start here. |
+| Precision | 0–100 % | Width of the cuts: 1/3 octave (soft) to 1/24 octave (surgical) |
+| Threshold | 0–100 % | Input: how far a peak must stick out (1.5–12 dB). Sidechain: level the sidechain must exceed (−90 to −30 dB, dashed line) |
+| Attack | 0.5–100 ms | How fast the reduction reacts |
+| Release | 5–1000 ms | How fast it lets go |
 
-**Header**
+**Display** (drag points, double-click resets, hover shows the value)
 
-| Element  | Optionen | Wirkung |
-|----------|----------|---------|
-| Detect   | Input, Sidechain | siehe oben |
-| Channels | Stereo Link, L / R, Mid / Side, Mid only, Side only | gemeinsame Erkennung, getrennte Kanäle, M/S getrennt, nur Mitte oder nur Seiten bearbeiten |
-| Delta    | an/aus | nur das hören, was entfernt wird |
+| Point | Controls | What it does |
+|-------|----------|--------------|
+| Red pills | Low / High (20 Hz–20 kHz) | Processing range, with half-octave fades |
+| Purple point | Emphasis freq + amount (100 Hz–12 kHz, ±12 dB) | More or less sensitivity around one frequency |
+| Green point | Tilt (±3 dB/oct around 1 kHz) | Shifts sensitivity towards lows or highs |
 
-Latenz: 2048 Samples bei 44,1/48 kHz (≈ 43 ms), wird dem Host gemeldet.
-Bei 96/192 kHz wächst die FFT mit, die Latenz bleibt etwa gleich lang.
+Curve up = more sensitive (more reduction), curve down = less sensitive.
 
-## Build (Windows, Visual Studio 2022)
+**Header and bottom bar**
 
-JUCE 8.0.6 liegt in `./JUCE`. Fehlt das Verzeichnis, holt CMake es automatisch.
+| Control | Options | What it does |
+|---------|---------|--------------|
+| Detect | Input, Sidechain | What the detector listens to |
+| Channels | Stereo Link, L / R, Mid / Side, Mid only, Side only | How stereo is processed |
+| Delta | on / off | Listen to the removed signal only |
+| Mix | 0–100 % | Dry/wet, phase-aligned |
+| Out | ±12 dB | Output level |
+
+## Sidechain ("make room")
+
+Put Sensei Smooth on the track that should **make room** (e.g. guitar) and feed the track that
+**needs room** (e.g. vocals) into the sidechain. The guitar is cut only in the bands where the
+vocal is present (above Threshold) *and* actually competes with it, and only until the vocal
+leads by 6 dB. Without a sidechain signal nothing is reduced, and the display shows
+"No sidechain signal".
+
+In FL Studio:
+
+1. Select the vocal mixer track, right-click the routing arrow of the guitar track and choose **Sidechain to this track**.
+2. In Sensei Smooth's wrapper (gear icon) → **Processing**, assign that track to the plugin's **Sidechain** input.
+3. Set **Detect** to **Sidechain**. The orange sidechain spectrum appears in the display.
+
+## Latency
+
+2048 samples at 44.1/48 kHz (about 43–46 ms), reported to the host so it is compensated automatically.
+At 96/192 kHz the FFT grows with the sample rate, so the latency in milliseconds stays about the same.
+Fine for mixing, too much for live monitoring.
+
+## Build
+
+Requirements: CMake 3.22+, Visual Studio 2022 (Windows). JUCE 8.0.6 is used from `./JUCE` if present,
+otherwise CMake fetches it automatically.
 
 ```bash
 cmake -B build -G "Visual Studio 17 2022" -A x64
-```
-
-```bash
 cmake --build build --config Release
 ```
 
-Ergebnisse:
+Outputs:
 
-- `build/SenseiSmooth_artefacts/Release/VST3/Sensei Smooth.vst3` – nach `C:\Program Files\Common Files\VST3` kopieren
+- `build/SenseiSmooth_artefacts/Release/VST3/Sensei Smooth.vst3` → copy to `C:\Program Files\Common Files\VST3`
 - `build/SenseiSmooth_artefacts/Release/Standalone/Sensei Smooth.exe`
 
 ## Tests
@@ -83,19 +104,26 @@ Ergebnisse:
 build/SenseiSmoothTests_artefacts/Release/SenseiSmoothTests.exe
 ```
 
-Prüft Transparenz (Amount 0, Mix 0, M/S-Rundweg), Resonanz-Absenkung, unverändertes Rauschen,
-Delta, Frequenzbereich, Threshold, Erkennungs-EQ, Sidechain (Absenkung, Stille, nicht verbunden,
-unter Threshold) und die Kanalmodi.
+Covers transparency (Amount 0, Mix 0, M/S round trip, odd block sizes), resonance reduction,
+untouched noise, delta (processed + delta = original), processing range, threshold, detection EQ,
+sidechain (reduction, silence, not connected, below threshold) and all channel modes.
 
-`SenseiSmoothSnapshot.exe <datei.png> [sc|drag|delta]` rendert die Oberfläche mit Testsignal offscreen als PNG
-(`delta` = Delta-Ansicht, `sc` = Sidechain-Modus mit einem gesangsähnlichen Sidechain-Signal, `drag` = zieht den Emphasis-Punkt per simuliertem Mausevent und prüft das Ergebnis).
+GUI snapshot (renders the editor offscreen with a test signal):
 
-## Aufbau
+```bash
+build/SenseiSmoothSnapshot_artefacts/Release/SenseiSmoothSnapshot.exe out.png [sc|drag|delta]
+```
 
-- `Source/ResonanceSuppressor.*` – DSP-Kern (nur `juce_dsp`, ohne Plugin-Abhängigkeiten)
-- `Source/PluginProcessor.*` – Parameter (APVTS), State, Busse (Main + optionaler Sidechain)
-- `Source/PluginEditor.*` – GUI mit Spektrum-, Sidechain-, Empfindlichkeits- und Reduktionsanzeige
-- `Tests/` – Offline-Tests und Snapshot-Tool
+`sc` = sidechain mode with a vocal-like sidechain, `drag` = drags the emphasis point with synthetic
+mouse events and prints the result, `delta` = delta view.
 
-Hinweis: Die Parameter-IDs `depth`, `sharpness` und `selectivity` sind intern geblieben,
-angezeigt werden sie als Amount, Precision und Threshold.
+## Project Layout
+
+- `Source/ResonanceSuppressor.*`: DSP core (depends only on `juce_dsp`)
+- `Source/PluginProcessor.*`: parameters (APVTS), state, buses (main + optional sidechain)
+- `Source/PluginEditor.*`: GUI (spectrum view with drag points, side panel, bottom bar)
+- `Tests/`: offline DSP tests and snapshot tool
+- `docs/`: screenshots
+
+Parameter IDs `depth`, `sharpness` and `selectivity` are kept internally for stability; they are shown
+as Amount, Precision and Threshold.
