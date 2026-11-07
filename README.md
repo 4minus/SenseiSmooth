@@ -137,10 +137,10 @@ sidechain (reduction, silence, not connected, below threshold) and all channel m
 GUI snapshot (renders the editor offscreen with a test signal):
 
 ```bash
-build/SenseiSmoothSnapshot_artefacts/Release/SenseiSmoothSnapshot.exe out.png [input|bands|sc|drag|delta] [scale]
+build/SenseiSmoothSnapshot_artefacts/Release/SenseiSmoothSnapshot.exe out.png [input|bands|overlap|sc|drag|delta] [scale]
 ```
 
-`sc` = sidechain mode with a vocal-like sidechain, `bands` = two band-pass bands with the band strip, `drag` = drags, adds and removes bands with synthetic
+`sc` = sidechain mode with a vocal-like sidechain, `bands` = two band-pass bands with the band strip, `overlap` = two overlapping bands, `drag` = drags, adds and removes bands with synthetic
 mouse events and prints the result, `delta` = delta view.
 
 ## Project Layout

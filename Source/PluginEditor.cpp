@@ -562,23 +562,53 @@ void SpectrumView::paint (juce::Graphics& g)
         g.strokePath (red, juce::PathStrokeType (1.5f));
     }
 
-    // the selected band's own shape, around the neutral line
+    // The selected band's area: between the neutral line and the gold curve, but only
+    // where this band shapes the curve (it is the strongest band there and pushes the
+    // curve in its own direction). Neighbouring bands never share an area, so nothing
+    // spills over a crossing.
     if (selectedBand >= 0 && s.bands[(size_t) selectedBand].on)
     {
-        const auto& b = s.bands[(size_t) selectedBand];
+        const auto& sel = s.bands[(size_t) selectedBand];
         const float y0 = yForSens (0.0f);
-        juce::Path shape;
-        shape.startNewSubPath (0.0f, y0);
-        for (int i = 0; i < numPoints; ++i)
+        auto yTotal = [this, &s] (float hz)
         {
-            const float hz = pointHz[(size_t) i];
-            shape.lineTo (xForFreq (hz), yForSens (juce::jlimit (-sensRangeDb * 1.3f, sensRangeDb * 1.3f,
-                                                                 ResonanceSuppressor::bandCurveDb (b, hz))));
+            return yForSens (juce::jlimit (-sensRangeDb * 1.3f, sensRangeDb * 1.3f, ResonanceSuppressor::sensitivityDb (s, hz)));
+        };
+
+        auto owns = [&] (float hz)
+        {
+            const float mine = ResonanceSuppressor::bandCurveDb (sel, hz);
+            if (std::abs (mine) < 0.05f || mine * ResonanceSuppressor::sensitivityDb (s, hz) <= 0.0f)
+                return false;
+            for (int j = 0; j < ResonanceSuppressor::numBands; ++j)
+                if (j != selectedBand && s.bands[(size_t) j].on
+                    && std::abs (ResonanceSuppressor::bandCurveDb (s.bands[(size_t) j], hz)) > std::abs (mine))
+                    return false;
+            return true;
+        };
+
+        juce::Path area;
+        int runStart = -1;
+        for (int i = 0; i <= numPoints; ++i)
+        {
+            const bool in = i < numPoints && owns (pointHz[(size_t) i]);
+            if (in && runStart < 0)
+            {
+                runStart = i;
+                area.startNewSubPath (xForFreq (pointHz[(size_t) i]), y0);
+            }
+            if (in)
+                area.lineTo (xForFreq (pointHz[(size_t) i]), yTotal (pointHz[(size_t) i]));
+            if (! in && runStart >= 0)
+            {
+                area.lineTo (xForFreq (pointHz[(size_t) i - 1]), y0);
+                area.closeSubPath();
+                runStart = -1;
+            }
         }
-        shape.lineTo (w, y0);
-        shape.closeSubPath();
-        g.setColour (bandColour (selectedBand).withAlpha (0.16f));
-        g.fillPath (shape);
+
+        g.setColour (bandColour (selectedBand).withAlpha (0.2f));
+        g.fillPath (area);
     }
 
     // detection curve (editable)

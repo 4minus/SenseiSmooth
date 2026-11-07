@@ -1,7 +1,8 @@
 // Renders the plugin editor offscreen (after feeding a test signal) to a PNG.
-// Usage: SenseiSmoothSnapshot <output.png> [input|bands|sc|drag|delta] [scale]
+// Usage: SenseiSmoothSnapshot <output.png> [input|bands|overlap|sc|drag|delta] [scale]
 //   input: default view (one bell band + tilt set)
-//   bands: two band-pass bands, band 1 selected (shows the band strip)
+//   bands:   two band-pass bands, band 1 selected (shows the band strip)
+//   overlap: two overlapping bells, band 2 selected
 //   sc:    sidechain mode - the sidechain gets a vocal-like harmonic signal
 //   drag:  drags band 1 with synthetic mouse events
 //   delta: delta view
@@ -94,6 +95,7 @@ int main (int argc, char** argv)
     const bool dragMode      = argc > 2 && juce::String (argv[2]) == "drag";
     const bool deltaMode     = argc > 2 && juce::String (argv[2]) == "delta";
     const bool bandsMode     = argc > 2 && juce::String (argv[2]) == "bands";
+    const bool overlapMode   = argc > 2 && juce::String (argv[2]) == "overlap";
     const float renderScale  = argc > 3 ? juce::jlimit (0.5f, 4.0f, juce::String (argv[3]).getFloatValue()) : 1.0f;
 
     SenseiSmoothAudioProcessor processor;
@@ -105,6 +107,17 @@ int main (int argc, char** argv)
     {
         processor.enableAllBuses();
         setParam (processor, ParamIDs::detect, 1.0f);
+    }
+    else if (overlapMode)
+    {
+        // two overlapping bells (a boost and a cut), band 2 selected
+        setParam (processor, ParamIDs::band (0, ParamIDs::bandOn), 1.0f);
+        setParam (processor, ParamIDs::band (0, ParamIDs::bandFreq), 1500.0f);
+        setParam (processor, ParamIDs::band (0, ParamIDs::bandGain), 7.0f);
+        setParam (processor, ParamIDs::band (1, ParamIDs::bandOn), 1.0f);
+        setParam (processor, ParamIDs::band (1, ParamIDs::bandFreq), 450.0f);
+        setParam (processor, ParamIDs::band (1, ParamIDs::bandGain), -9.0f);
+        setParam (processor, ParamIDs::band (1, ParamIDs::bandQ), 0.7f);
     }
     else if (bandsMode)
     {
@@ -183,9 +196,9 @@ int main (int argc, char** argv)
     {
         if (dragMode)
             simulateBandDrag (processor, *editor);
-        if (bandsMode)
+        if (bandsMode || overlapMode)
             if (auto* view = findSpectrum (*editor))
-                view->setSelectedBand (0);
+                view->setSelectedBand (overlapMode ? 1 : 0);
 
         const auto image = editor->createComponentSnapshot (editor->getLocalBounds(), true, renderScale);
 
