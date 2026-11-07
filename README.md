@@ -11,6 +11,8 @@ Sensei Smooth is a JUCE-based VST3/Standalone effect that finds harsh, ringing f
 and pulls them down only while they stick out, so the rest of the sound keeps its energy.
 It can also make room for another track via sidechain.
 
+Free and open source under the [GNU AGPLv3](LICENSE).
+
 ![Sensei Smooth](docs/screenshot.png)
 
 *Delta view: the cream area is the signal that is being removed. The vermilion curve hanging from the top
@@ -155,3 +157,18 @@ Colour scheme "Sumi & Shu" (traditional Japanese colours):
 | Detection curve, emphasis | Kin (gold) | `#D6A84E` |
 | Tilt | Matcha | `#9DB06A` |
 | Sidechain | Ai (indigo) | `#79A6D9` |
+
+## License
+
+Copyright (C) 2026 Marius Kolleck / vierminus audio
+
+Sensei Smooth is free software: you can redistribute it and/or modify it under the terms of the
+GNU Affero General Public License as published by the Free Software Foundation, version 3 of the
+License. It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See [LICENSE](LICENSE)
+for the full text.
+
+Third-party components:
+
+- [JUCE](https://juce.com) 8, used under the GNU AGPLv3
+- VST is a registered trademark of Steinberg Media Technologies GmbH
