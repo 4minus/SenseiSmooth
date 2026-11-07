@@ -1,20 +1,22 @@
 #include "PluginEditor.h"
+#include "SenseiSmoothAssets.h"
 
 namespace Colours
 {
-    const juce::Colour background { 0xff15171c };
-    const juce::Colour panel      { 0xff1d2027 };
-    const juce::Colour panelLight { 0xff252932 };
-    const juce::Colour grid       { 0xff2a2e37 };
-    const juce::Colour text       { 0xffc9ced8 };
-    const juce::Colour dimText    { 0xff7d8492 };
-    const juce::Colour spectrum   { 0xff4a5568 };
-    const juce::Colour accent     { 0xff3fd0c9 };   // reduction, main controls
-    const juce::Colour sidechain  { 0xffe0a24a };
-    const juce::Colour sensitive  { 0xffb48ce0 };   // detection curve + emphasis point
-    const juce::Colour range      { 0xffe47a7a };   // low / high pills
-    const juce::Colour tiltColour { 0xff8fd18a };
-    const juce::Colour deltaColour{ 0xfff0e6a0 };   // removed signal in delta mode
+    // "Sumi & Shu": ink black, washi paper, vermilion, gold, matcha, indigo
+    const juce::Colour background { 0xff111113 };   // sumi (ink)
+    const juce::Colour panel      { 0xff1a1a1d };
+    const juce::Colour panelLight { 0xff252428 };
+    const juce::Colour grid       { 0xff2e2c30 };
+    const juce::Colour text       { 0xffede6d6 };   // washi (paper)
+    const juce::Colour dimText    { 0xff8e887b };
+    const juce::Colour spectrum   { 0xff5a554d };   // warm ink grey
+    const juce::Colour accent     { 0xffe4472b };   // shu (vermilion): cuts + main controls
+    const juce::Colour sidechain  { 0xff79a6d9 };   // ai (indigo)
+    const juce::Colour sensitive  { 0xffd6a84e };   // kin (gold): detection curve + emphasis point
+    const juce::Colour range      { 0xffede6d6 };   // washi pills
+    const juce::Colour tiltColour { 0xff9db06a };   // matcha
+    const juce::Colour deltaColour{ 0xfff3e7c6 };   // removed signal in delta mode
 }
 
 namespace
@@ -554,6 +556,11 @@ void SenseiSmoothLookAndFeel::drawLinearSlider (juce::Graphics& g, int x, int y,
 SenseiSmoothAudioProcessorEditor::SenseiSmoothAudioProcessorEditor (SenseiSmoothAudioProcessor& p)
     : AudioProcessorEditor (&p), processor (p), spectrum (p)
 {
+    logo = juce::Drawable::createFromImageData (SenseiSmoothAssets::ss_logo_white_svg,
+                                                (size_t) SenseiSmoothAssets::ss_logo_white_svgSize);
+    if (logo != nullptr)
+        logo->replaceColour (juce::Colours::white, Colours::text);   // washi instead of pure white
+
     addAndMakeVisible (spectrum);
 
     addControl (amount,    ParamIDs::depth,       "Amount",    Size::large,
@@ -583,8 +590,8 @@ SenseiSmoothAudioProcessorEditor::SenseiSmoothAudioProcessorEditor (SenseiSmooth
     deltaAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (processor.getState(), ParamIDs::delta, deltaButton);
 
     setResizable (true, true);
-    setResizeLimits (780, 480, 1800, 1100);
-    setSize (960, 580);
+    setResizeLimits (800, 520, 1800, 1100);
+    setSize (980, 620);
 
     // Set last so the change propagates to all children (sliders rebuild their
     // text boxes with the custom colours and fonts).
@@ -651,13 +658,18 @@ void SenseiSmoothAudioProcessorEditor::paint (juce::Graphics& g)
 {
     g.fillAll (Colours::background);
 
-    g.setColour (Colours::text);
-    g.setFont (juce::FontOptions (22.0f, juce::Font::bold));
-    g.drawText ("SENSEI SMOOTH", 16, 8, 240, 30, juce::Justification::centredLeft);
+    // logo + tagline
+    if (logo != nullptr)
+        logo->drawWithin (g, logoArea.toFloat(), juce::RectanglePlacement::xLeft | juce::RectanglePlacement::yMid, 1.0f);
 
     g.setColour (Colours::dimText);
     g.setFont (juce::FontOptions (12.0f));
-    g.drawText ("dynamic resonance suppressor  //  vierminus audio", 196, 8, 300, 30, juce::Justification::centredLeft);
+    g.drawText ("dynamic resonance suppressor", logoArea.getRight() + 16, logoArea.getY() + 8, 260, 18,
+                juce::Justification::centredLeft);
+    g.setColour (Colours::accent);
+    g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+    g.drawText ("VIERMINUS AUDIO", logoArea.getRight() + 16, logoArea.getY() + 28, 260, 16,
+                juce::Justification::centredLeft);
 
     // side panel
     g.setColour (Colours::panel);
@@ -682,14 +694,16 @@ void SenseiSmoothAudioProcessorEditor::resized()
 {
     auto area = getLocalBounds().reduced (12);
 
-    // header: title (painted) + mode selectors
-    auto header = area.removeFromTop (36);
-    channels.box.setBounds (header.removeFromRight (130).reduced (0, 4));
-    channels.label.setBounds (header.removeFromRight (72));
-    header.removeFromRight (10);
-    detect.box.setBounds (header.removeFromRight (115).reduced (0, 4));
-    detect.label.setBounds (header.removeFromRight (60));
-    area.removeFromTop (6);
+    // header: logo (painted) + mode selectors
+    auto header = area.removeFromTop (58);
+    logoArea = header.withWidth (160);
+    auto selectors = header.withSizeKeepingCentre (header.getWidth(), 30);
+    channels.box.setBounds (selectors.removeFromRight (130));
+    channels.label.setBounds (selectors.removeFromRight (72));
+    selectors.removeFromRight (10);
+    detect.box.setBounds (selectors.removeFromRight (115));
+    detect.label.setBounds (selectors.removeFromRight (60));
+    area.removeFromTop (8);
 
     // bottom bar: delta, mix, output
     bottomBar = area.removeFromBottom (44);

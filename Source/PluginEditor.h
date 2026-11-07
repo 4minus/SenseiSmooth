@@ -116,7 +116,8 @@ private:
     juce::ToggleButton deltaButton { "Delta" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> deltaAttachment;
 
-    juce::Rectangle<int> panelArea, bottomBar;
+    std::unique_ptr<juce::Drawable> logo;
+    juce::Rectangle<int> panelArea, bottomBar, logoArea;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SenseiSmoothAudioProcessorEditor)
 };

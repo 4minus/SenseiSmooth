@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/graphics/ss_logo_white.svg">
+  <img alt="Sensei Smooth" src="assets/graphics/ss_logo_black.svg" width="520">
+</picture>
+
 # Sensei Smooth
 
 **Dynamic resonance suppressor by vierminus audio.**
@@ -8,8 +13,8 @@ It can also make room for another track via sidechain.
 
 ![Sensei Smooth](docs/screenshot.png)
 
-*Delta view: the yellow area is the signal that is being removed. The teal curve hanging from the top
-is the current reduction, and the purple line is the editable detection curve.*
+*Delta view: the cream area is the signal that is being removed. The vermilion curve hanging from the top
+is the current reduction, and the gold line is the editable detection curve.*
 
 ## Current Highlights
 
@@ -29,7 +34,7 @@ is the current reduction, and the purple line is the editable detection curve.*
 2. Turn up **Amount** until the harshness calms down.
 3. Use **Precision** for narrower or broader cuts, and **Threshold** to decide how much a peak must stick out.
 4. Switch on **Delta** to hear (and see) only what is being removed. If you hear musical content there, back off.
-5. Shape the detection in the display: pull the purple point up where it should work harder, down where it should leave things alone.
+5. Shape the detection in the display: pull the gold point up where it should work harder, down where it should leave things alone.
 
 ## Controls
 
@@ -47,9 +52,9 @@ is the current reduction, and the purple line is the editable detection curve.*
 
 | Point | Controls | What it does |
 |-------|----------|--------------|
-| Red pills | Low / High (20 Hz–20 kHz) | Processing range, with half-octave fades |
-| Purple point | Emphasis freq + amount (100 Hz–12 kHz, ±12 dB) | More or less sensitivity around one frequency |
-| Green point | Tilt (±3 dB/oct around 1 kHz) | Shifts sensitivity towards lows or highs |
+| Cream pills | Low / High (20 Hz–20 kHz) | Processing range, with half-octave fades |
+| Gold point | Emphasis freq + amount (100 Hz–12 kHz, ±12 dB) | More or less sensitivity around one frequency |
+| Matcha (green) point | Tilt (±3 dB/oct around 1 kHz) | Shifts sensitivity towards lows or highs |
 
 Curve up = more sensitive (more reduction), curve down = less sensitive.
 
@@ -75,7 +80,7 @@ In FL Studio:
 
 1. Select the vocal mixer track, right-click the routing arrow of the guitar track and choose **Sidechain to this track**.
 2. In Sensei Smooth's wrapper (gear icon) → **Processing**, assign that track to the plugin's **Sidechain** input.
-3. Set **Detect** to **Sidechain**. The orange sidechain spectrum appears in the display.
+3. Set **Detect** to **Sidechain**. The indigo sidechain spectrum appears in the display.
 
 ## Latency
 
@@ -123,7 +128,30 @@ mouse events and prints the result, `delta` = delta view.
 - `Source/PluginProcessor.*`: parameters (APVTS), state, buses (main + optional sidechain)
 - `Source/PluginEditor.*`: GUI (spectrum view with drag points, side panel, bottom bar)
 - `Tests/`: offline DSP tests and snapshot tool
+- `assets/graphics/`: logo files and app icon
 - `docs/`: screenshots
 
 Parameter IDs `depth`, `sharpness` and `selectivity` are kept internally for stability; they are shown
 as Amount, Precision and Threshold.
+
+## Brand
+
+Logo files in `assets/graphics/` (all vector, white and black versions):
+
+| File | Content |
+|------|---------|
+| `ss_logo_*.svg` | Full logo: icon + wordmark |
+| `ss_icon_*.svg` | Icon only (brush circle, waveform, katana), square |
+| `ss_wordmark_*.svg` | Wordmark only ("SENSEI SMOOTH") |
+| `ss_appicon_1024.png` | App icon (washi on sumi), used for the standalone app |
+
+Colour scheme "Sumi & Shu" (traditional Japanese colours):
+
+| Role | Name | Hex |
+|------|------|-----|
+| Background | Sumi (ink) | `#111113` |
+| Text, logo | Washi (paper) | `#EDE6D6` |
+| Accent: reduction, main controls | Shu (vermilion) | `#E4472B` |
+| Detection curve, emphasis | Kin (gold) | `#D6A84E` |
+| Tilt | Matcha | `#9DB06A` |
+| Sidechain | Ai (indigo) | `#79A6D9` |

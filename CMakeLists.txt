@@ -31,12 +31,20 @@ juce_add_plugin(SenseiSmooth
     IS_MIDI_EFFECT              FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     VST3_CATEGORIES             Fx Dynamics EQ
+    ICON_BIG                    "${CMAKE_CURRENT_SOURCE_DIR}/assets/graphics/ss_appicon_1024.png"
     COPY_PLUGIN_AFTER_BUILD     FALSE)
 
 target_sources(SenseiSmooth PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
     Source/ResonanceSuppressor.cpp)
+
+# Logo for the editor header
+juce_add_binary_data(SenseiSmoothAssets
+    HEADER_NAME SenseiSmoothAssets.h
+    NAMESPACE   SenseiSmoothAssets
+    SOURCES     assets/graphics/ss_logo_white.svg)
+target_link_libraries(SenseiSmooth PRIVATE SenseiSmoothAssets)
 
 target_compile_definitions(SenseiSmooth PUBLIC
     JUCE_WEB_BROWSER=0
