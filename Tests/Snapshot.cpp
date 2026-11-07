@@ -1,6 +1,10 @@
 // Renders the plugin editor offscreen (after feeding a test signal) to a PNG.
-// Usage: SenseiSmoothSnapshot <output.png> [sc]
-//   sc: sidechain mode - the sidechain gets a vocal-like harmonic signal.
+// Usage: SenseiSmoothSnapshot <output.png> [input|sc|drag|delta] [scale]
+//   input: default view (emphasis + tilt set)
+//   sc:    sidechain mode - the sidechain gets a vocal-like harmonic signal
+//   drag:  drags the emphasis point with synthetic mouse events
+//   delta: delta view
+//   scale: render scale, e.g. 2 for high-DPI images (default 1)
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -63,6 +67,7 @@ int main (int argc, char** argv)
     const bool sidechainMode = argc > 2 && juce::String (argv[2]) == "sc";
     const bool dragMode      = argc > 2 && juce::String (argv[2]) == "drag";
     const bool deltaMode     = argc > 2 && juce::String (argv[2]) == "delta";
+    const float renderScale  = argc > 3 ? juce::jlimit (0.5f, 4.0f, juce::String (argv[3]).getFloatValue()) : 1.0f;
 
     SenseiSmoothAudioProcessor processor;
     setParam (processor, ParamIDs::depth, 12.0f);
@@ -137,7 +142,7 @@ int main (int argc, char** argv)
         if (dragMode)
             simulateEmphasisDrag (processor, *editor);
 
-        const auto image = editor->createComponentSnapshot (editor->getLocalBounds(), true, 1.0f);
+        const auto image = editor->createComponentSnapshot (editor->getLocalBounds(), true, renderScale);
 
         outFile.deleteFile();
         juce::FileOutputStream stream (outFile);
