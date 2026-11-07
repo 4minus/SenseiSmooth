@@ -8,11 +8,12 @@
 //==============================================================================
 /** Spectrum + reduction display with an editable detection curve.
 
-    Drag points:
-      - Low / High pills: processing range
-      - Emphasis point:   frequency (x) and sensitivity boost/cut (y)
-      - Tilt point:       tilt of the sensitivity (y)
-    Double-click a point to reset it.
+    Points on the gold curve:
+      - Low / High pills: processing range (double-click resets)
+      - Tilt point:       tilt of the sensitivity (y, double-click resets)
+      - Band points 1..6: frequency (x) and gain (y); mouse wheel = width (Q);
+                          right-click = shape menu; double-click = remove
+    Double-click an empty spot to add a band there.
 */
 class SpectrumView final : public juce::Component,
                            private juce::Timer
@@ -28,9 +29,25 @@ public:
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+
+    /** Selected band (-1 = none). The editor shows its controls below the display. */
+    int  getSelectedBand() const noexcept { return selectedBand; }
+    void setSelectedBand (int index);
+    std::function<void (int)> onBandSelected;
+
+    static juce::Colour bandColour (int index);
 
 private:
-    enum class Handle { none, low, high, emphasis, tilt };
+    struct Handle
+    {
+        enum Type { none, low, high, tilt, band };
+        Type type = none;
+        int  index = -1;
+
+        bool operator== (const Handle& o) const noexcept { return type == o.type && index == o.index; }
+        bool operator!= (const Handle& o) const noexcept { return ! (*this == o); }
+    };
 
     void timerCallback() override;
 
@@ -44,10 +61,16 @@ private:
     Handle handleAt (juce::Point<float>) const;
     juce::StringArray paramsFor (Handle) const;
     juce::String describe (Handle, const ResonanceSuppressor::Settings&) const;
-    void setParam (const char* id, float value);
+    void setParam (const juce::String& id, float value);
+    void beginGestures (Handle);
+    void endGestures (Handle);
+    void addBandAt (juce::Point<float>);
+    void removeBand (int index);
+    void showBandMenu (int index);
 
     SenseiSmoothAudioProcessor& processor;
-    Handle hovered = Handle::none, dragging = Handle::none;
+    Handle hovered, dragging;
+    int selectedBand = -1;
 
     static constexpr int numPoints = 256;
     static constexpr float minHz = 20.0f, maxHz = 20000.0f;
@@ -56,6 +79,35 @@ private:
     static constexpr float tiltHandleHz = 12000.0f;
 
     std::array<float, numPoints> levelDb {}, sidechainDb {}, reductionDb {}, outputDb {}, pointHz {};
+};
+
+//==============================================================================
+/** Controls of the selected detection band, shown below the display. */
+class BandStrip final : public juce::Component
+{
+public:
+    explicit BandStrip (SenseiSmoothAudioProcessor&);
+
+    /** -1 shows a short hint instead of controls. */
+    void setBand (int index);
+    std::function<void()> onRemove;
+
+    void paint (juce::Graphics&) override;
+    void resized() override;
+
+private:
+    SenseiSmoothAudioProcessor& processor;
+    int band = -1;
+
+    juce::ToggleButton onButton { "On" };
+    juce::ComboBox shapeBox;
+    juce::Slider freq, gain, q;
+    juce::Label freqLabel, gainLabel, qLabel, hint;
+    juce::TextButton removeButton { "Remove" };
+
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> onAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> shapeAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> freqAttachment, gainAttachment, qAttachment;
 };
 
 //==============================================================================
@@ -109,6 +161,7 @@ private:
     juce::TooltipWindow tooltipWindow { this, 700 };
 
     SpectrumView spectrum;
+    BandStrip bandStrip;
 
     Control amount, precision, threshold, attack, release;   // side panel
     Control mix, output;                                     // bottom bar

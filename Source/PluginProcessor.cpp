@@ -64,8 +64,15 @@ SenseiSmoothAudioProcessor::SenseiSmoothAudioProcessor()
     params.lowFreq     = state.getRawParameterValue (ParamIDs::lowFreq);
     params.highFreq    = state.getRawParameterValue (ParamIDs::highFreq);
     params.tilt        = state.getRawParameterValue (ParamIDs::tilt);
-    params.emphFreq    = state.getRawParameterValue (ParamIDs::emphFreq);
-    params.emphGain    = state.getRawParameterValue (ParamIDs::emphGain);
+    for (int i = 0; i < ResonanceSuppressor::numBands; ++i)
+    {
+        auto& b = params.bands[(size_t) i];
+        b.on    = state.getRawParameterValue (ParamIDs::band (i, ParamIDs::bandOn));
+        b.shape = state.getRawParameterValue (ParamIDs::band (i, ParamIDs::bandShape));
+        b.freq  = state.getRawParameterValue (ParamIDs::band (i, ParamIDs::bandFreq));
+        b.gain  = state.getRawParameterValue (ParamIDs::band (i, ParamIDs::bandGain));
+        b.q     = state.getRawParameterValue (ParamIDs::band (i, ParamIDs::bandQ));
+    }
     params.mix         = state.getRawParameterValue (ParamIDs::mix);
     params.output      = state.getRawParameterValue (ParamIDs::output);
     params.delta       = state.getRawParameterValue (ParamIDs::delta);
@@ -92,9 +99,26 @@ juce::AudioProcessorValueTreeState::ParameterLayout SenseiSmoothAudioProcessor::
     addFloat (ParamIDs::lowFreq,     "Low",           skewedRange (20.0f, 20000.0f, 640.0f, 1.0f), 80.0f,    hzAttributes());
     addFloat (ParamIDs::highFreq,    "High",          skewedRange (20.0f, 20000.0f, 640.0f, 1.0f), 18000.0f, hzAttributes());
     addFloat (ParamIDs::tilt,        "Tilt",          NormalisableRange<float> (-3.0f, 3.0f, 0.1f), 0.0f,    dbAttributes (" dB/oct"));
-    addFloat (ParamIDs::emphFreq,    "Emphasis Freq", skewedRange (100.0f, 12000.0f, 1500.0f, 1.0f), 3000.0f, hzAttributes());
-    addFloat (ParamIDs::emphGain,    "Emphasis",      NormalisableRange<float> (-12.0f, 12.0f, 0.1f), 0.0f,  dbAttributes());
-    addFloat (ParamIDs::mix,         "Mix",           NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f, percentAttributes());
+    // Detection bands (all off by default, spread across the spectrum)
+    const float defaultHz[ResonanceSuppressor::numBands] = { 150.0f, 400.0f, 1000.0f, 2500.0f, 5000.0f, 10000.0f };
+    for (int i = 0; i < ResonanceSuppressor::numBands; ++i)
+    {
+        const String prefix = "Band " + String (i + 1) + " ";
+        auto id = [i] (const char* field) { return ParameterID { ParamIDs::band (i, field), 1 }; };
+
+        layout.add (std::make_unique<AudioParameterBool>   (id (ParamIDs::bandOn),    prefix + "On", false));
+        layout.add (std::make_unique<AudioParameterChoice> (id (ParamIDs::bandShape), prefix + "Shape", bandShapeNames(), 0));
+        layout.add (std::make_unique<AudioParameterFloat>  (id (ParamIDs::bandFreq),  prefix + "Freq",
+                                                            skewedRange (20.0f, 20000.0f, 640.0f, 1.0f), defaultHz[i], hzAttributes()));
+        layout.add (std::make_unique<AudioParameterFloat>  (id (ParamIDs::bandGain),  prefix + "Gain",
+                                                            NormalisableRange<float> (-18.0f, 18.0f, 0.1f), 6.0f, dbAttributes()));
+        layout.add (std::make_unique<AudioParameterFloat>  (id (ParamIDs::bandQ),     prefix + "Q",
+                                                            skewedRange (0.3f, 8.0f, 1.2f, 0.01f), 1.0f,
+                                                            AudioParameterFloatAttributes().withStringFromValueFunction (
+                                                                [] (float v, int) { return String (v, 2); })));
+    }
+
+    addFloat (ParamIDs::mix,        "Mix",           NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f, percentAttributes());
     addFloat (ParamIDs::output,      "Output",        NormalisableRange<float> (-12.0f, 12.0f, 0.1f), 0.0f,  dbAttributes());
 
     layout.add (std::make_unique<AudioParameterBool>   (ParameterID { ParamIDs::delta, 1 },       "Delta", false));
@@ -117,9 +141,17 @@ ResonanceSuppressor::Settings SenseiSmoothAudioProcessor::readSettings() const n
     s.lowHz        = params.lowFreq->load();
     s.highHz       = params.highFreq->load();
     s.tiltDbPerOct = params.tilt->load();
-    s.emphasisHz   = params.emphFreq->load();
-    s.emphasisDb   = params.emphGain->load();
-    s.mix          = params.mix->load() * 0.01f;
+    for (int i = 0; i < RS::numBands; ++i)
+    {
+        const auto& p = params.bands[(size_t) i];
+        auto& b = s.bands[(size_t) i];
+        b.on     = p.on->load() > 0.5f;
+        b.shape  = (RS::BandShape) juce::jlimit (0, 3, juce::roundToInt (p.shape->load()));
+        b.hz     = p.freq->load();
+        b.gainDb = p.gain->load();
+        b.q      = p.q->load();
+    }
+    s.mix         = params.mix->load() * 0.01f;
     s.outputGainDb = params.output->load();
     s.delta        = params.delta->load() > 0.5f;
     s.detect       = params.detect->load() > 0.5f ? RS::DetectSource::sidechain : RS::DetectSource::input;

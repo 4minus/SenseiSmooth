@@ -15,13 +15,26 @@ namespace ParamIDs
     inline constexpr auto lowFreq     = "lowFreq";
     inline constexpr auto highFreq    = "highFreq";
     inline constexpr auto tilt        = "tilt";
-    inline constexpr auto emphFreq    = "emphFreq";
-    inline constexpr auto emphGain    = "emphGain";
     inline constexpr auto mix         = "mix";
     inline constexpr auto output      = "output";
     inline constexpr auto delta       = "delta";
     inline constexpr auto detect      = "detect";
     inline constexpr auto channelMode = "channelMode";
+
+    // Detection bands: "band1On", "band1Shape", "band1Freq", "band1Gain", "band1Q", ... (index is 0-based)
+    inline constexpr auto bandOn    = "On";
+    inline constexpr auto bandShape = "Shape";
+    inline constexpr auto bandFreq  = "Freq";
+    inline constexpr auto bandGain  = "Gain";
+    inline constexpr auto bandQ     = "Q";
+    inline juce::String band (int index, const char* field) { return "band" + juce::String (index + 1) + field; }
+}
+
+/** Display names of the band shapes, in the order of ResonanceSuppressor::BandShape. */
+inline const juce::StringArray& bandShapeNames()
+{
+    static const juce::StringArray names { "Bell", "Low Shelf", "High Shelf", "Band Pass" };
+    return names;
 }
 
 class SenseiSmoothAudioProcessor final : public juce::AudioProcessor
@@ -84,8 +97,15 @@ private:
         std::atomic<float>* lowFreq = nullptr;
         std::atomic<float>* highFreq = nullptr;
         std::atomic<float>* tilt = nullptr;
-        std::atomic<float>* emphFreq = nullptr;
-        std::atomic<float>* emphGain = nullptr;
+        struct BandParams
+        {
+            std::atomic<float>* on = nullptr;
+            std::atomic<float>* shape = nullptr;
+            std::atomic<float>* freq = nullptr;
+            std::atomic<float>* gain = nullptr;
+            std::atomic<float>* q = nullptr;
+        };
+        std::array<BandParams, ResonanceSuppressor::numBands> bands {};
         std::atomic<float>* mix = nullptr;
         std::atomic<float>* output = nullptr;
         std::atomic<float>* delta = nullptr;

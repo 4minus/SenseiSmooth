@@ -201,15 +201,54 @@ int main()
 
         // 6) Detection EQ shifts the sensitivity (still at threshold 100 %).
         std::printf ("\nDetection EQ (weak 2 kHz tone)\n");
-        s.emphasisHz = 2000.0f;
-        s.emphasisDb = 12.0f;
-        const double dropEmph = weakDrop();
-        check (dropEmph > dropHighThr + 2.0, "emphasis +12 dB @ 2 kHz -> more reduction (dB gained)", dropEmph - dropHighThr);
+        using Shape = ResonanceSuppressor::BandShape;
+        auto& b1 = s.bands[0];
+        b1 = { true, Shape::bell, 2000.0f, 12.0f, 1.0f };
+        const double dropBell = weakDrop();
+        check (dropBell > dropHighThr + 2.0, "bell band +12 dB @ 2 kHz -> more reduction (dB gained)", dropBell - dropHighThr);
 
-        s.emphasisDb = 0.0f;
+        b1 = { true, Shape::bell, 2000.0f, -12.0f, 1.0f };
+        s.threshold = 0.0f;
+        const double dropBellCut = weakDrop();
+        check (dropBellCut < dropLowThr - 3.0, "bell band -12 dB @ 2 kHz -> less reduction (dB lost)", dropLowThr - dropBellCut);
+        s.threshold = 1.0f;
+
+        b1 = { true, Shape::highShelf, 1000.0f, 12.0f, 1.0f };
+        const double dropShelf = weakDrop();
+        check (dropShelf > dropHighThr + 2.0, "high shelf +12 dB from 1 kHz -> more reduction at 2 kHz", dropShelf - dropHighThr);
+
+        b1 = {};
         s.tiltDbPerOct = -3.0f;
         const double dropTilt = weakDrop();
         check (dropTilt < dropHighThr - 1.0, "tilt -3 dB/oct -> less reduction at 2 kHz (dB lost)", dropHighThr - dropTilt);
+        s.tiltDbPerOct = 0.0f;
+    }
+
+    // 6b) Band pass: only reduce inside the band-pass bands.
+    std::printf ("\nBand pass (two resonances: 500 Hz and 3 kHz)\n");
+    {
+        using Shape = ResonanceSuppressor::BandShape;
+        auto in = makeNoise (1, length, 0.05f, 9);
+        addSine (in, 500.0, 0.3f);
+        addSine (in, 3000.0, 0.3f);
+
+        const int settle = (int) sr;
+        const auto specIn = powerSpectrumDb (in[0], settle - latency);
+
+        ResonanceSuppressor::Settings s;
+        s.depthDb = 12.0f;
+        s.bands[2] = { true, Shape::bandPass, 3000.0f, 0.0f, 2.0f };   // only around 3 kHz
+
+        const auto spec = powerSpectrumDb (run (in, s)[0], settle);
+        const double drop3k  = peakDb (specIn, 3000.0) - peakDb (spec, 3000.0);
+        const double drop500 = peakDb (specIn, 500.0)  - peakDb (spec, 500.0);
+        check (drop3k > 8.0, "resonance inside the band pass is reduced (dB, expect > 8)", drop3k);
+        check (std::abs (drop500) < 0.5, "resonance outside the band pass is untouched (dB, expect |x| < 0.5)", drop500);
+
+        s.bands[2].on = false;   // switched off -> both are reduced again
+        const auto specOff = powerSpectrumDb (run (in, s)[0], settle);
+        check (peakDb (specIn, 500.0) - peakDb (specOff, 500.0) > 8.0, "band pass off -> 500 Hz reduced again (dB)",
+               peakDb (specIn, 500.0) - peakDb (specOff, 500.0));
     }
 
     // 7) Sidechain ("make room"): main = loud noise, sidechain = 3 kHz tone.

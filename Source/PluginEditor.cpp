@@ -36,6 +36,19 @@ namespace
 }
 
 //==============================================================================
+juce::Colour SpectrumView::bandColour (int index)
+{
+    static const juce::Colour colours[] = {
+        juce::Colour (0xffd6a84e),   // kin (gold)
+        juce::Colour (0xff79a6d9),   // ai (indigo)
+        juce::Colour (0xff9db06a),   // matcha
+        juce::Colour (0xffe8a0b4),   // sakura
+        juce::Colour (0xffa48fd0),   // fuji (wisteria)
+        juce::Colour (0xffe39a4f),   // kitsune (fox)
+    };
+    return colours[(size_t) juce::jlimit (0, 5, index)];
+}
+
 SpectrumView::SpectrumView (SenseiSmoothAudioProcessor& p) : processor (p)
 {
     for (int i = 0; i < numPoints; ++i)
@@ -77,65 +90,184 @@ juce::Point<float> SpectrumView::handlePosition (Handle h, const Settings& s) co
 {
     auto onCurve = [&] (float hz) { return juce::Point<float> (xForFreq (hz), yForSens (ResonanceSuppressor::sensitivityDb (s, hz))); };
 
-    switch (h)
+    switch (h.type)
     {
-        case Handle::low:      return onCurve (juce::jmin (s.lowHz, s.highHz));
-        case Handle::high:     return onCurve (juce::jmax (s.lowHz, s.highHz));
-        case Handle::emphasis: return onCurve (s.emphasisHz);
-        case Handle::tilt:     return onCurve (tiltHandleHz);
+        case Handle::low:  return onCurve (juce::jmin (s.lowHz, s.highHz));
+        case Handle::high: return onCurve (juce::jmax (s.lowHz, s.highHz));
+        case Handle::tilt: return onCurve (tiltHandleHz);
+        case Handle::band: return onCurve (s.bands[(size_t) h.index].hz);
         case Handle::none:
-        default:               return {};
+        default:           return {};
     }
 }
 
 SpectrumView::Handle SpectrumView::handleAt (juce::Point<float> p) const
 {
     const auto s = processor.readSettings();
-    Handle best = Handle::none;
+    Handle best;
     float bestDist = 14.0f;
 
-    for (auto h : { Handle::emphasis, Handle::tilt, Handle::low, Handle::high })
+    auto consider = [&] (Handle h, float yScale)
     {
         const auto pos = handlePosition (h, s);
-        // pills are tall: be generous vertically
-        const float dx = p.x - pos.x;
-        const float dy = (h == Handle::low || h == Handle::high) ? (p.y - pos.y) * 0.5f : p.y - pos.y;
+        const float dx = p.x - pos.x, dy = (p.y - pos.y) * yScale;
         const float d = std::sqrt (dx * dx + dy * dy);
         if (d < bestDist) { bestDist = d; best = h; }
-    }
+    };
+
+    for (int i = ResonanceSuppressor::numBands; --i >= 0;)
+        if (s.bands[(size_t) i].on)
+            consider ({ Handle::band, i }, 1.0f);
+
+    consider ({ Handle::tilt, -1 }, 1.0f);
+    consider ({ Handle::low,  -1 }, 0.5f);   // pills are tall: be generous vertically
+    consider ({ Handle::high, -1 }, 0.5f);
     return best;
 }
 
 juce::StringArray SpectrumView::paramsFor (Handle h) const
 {
-    switch (h)
+    switch (h.type)
     {
-        case Handle::low:      return { ParamIDs::lowFreq };
-        case Handle::high:     return { ParamIDs::highFreq };
-        case Handle::emphasis: return { ParamIDs::emphFreq, ParamIDs::emphGain };
-        case Handle::tilt:     return { ParamIDs::tilt };
+        case Handle::low:  return { ParamIDs::lowFreq };
+        case Handle::high: return { ParamIDs::highFreq };
+        case Handle::tilt: return { ParamIDs::tilt };
+        case Handle::band: return { ParamIDs::band (h.index, ParamIDs::bandFreq), ParamIDs::band (h.index, ParamIDs::bandGain) };
         case Handle::none:
-        default:               return {};
+        default:           return {};
     }
 }
 
 juce::String SpectrumView::describe (Handle h, const Settings& s) const
 {
-    switch (h)
+    switch (h.type)
     {
-        case Handle::low:      return "Low  " + formatHz (s.lowHz);
-        case Handle::high:     return "High  " + formatHz (s.highHz);
-        case Handle::emphasis: return "Emphasis  " + formatHz (s.emphasisHz) + "  " + formatDb (s.emphasisDb);
-        case Handle::tilt:     return "Tilt  " + formatDb (s.tiltDbPerOct, " dB/oct");
+        case Handle::low:  return "Low  " + formatHz (s.lowHz);
+        case Handle::high: return "High  " + formatHz (s.highHz);
+        case Handle::tilt: return "Tilt  " + formatDb (s.tiltDbPerOct, " dB/oct");
+        case Handle::band:
+        {
+            const auto& b = s.bands[(size_t) h.index];
+            return "Band " + juce::String (h.index + 1) + "  " + bandShapeNames()[(int) b.shape] + "  "
+                 + formatHz (b.hz) + "  " + formatDb (b.gainDb) + "  Q " + juce::String (b.q, 2);
+        }
         case Handle::none:
-        default:               return {};
+        default:           return {};
     }
 }
 
-void SpectrumView::setParam (const char* id, float value)
+void SpectrumView::setParam (const juce::String& id, float value)
 {
     if (auto* p = processor.getState().getParameter (id))
         p->setValueNotifyingHost (p->convertTo0to1 (value));
+}
+
+void SpectrumView::beginGestures (Handle h)
+{
+    for (auto& id : paramsFor (h))
+        if (auto* p = processor.getState().getParameter (id))
+            p->beginChangeGesture();
+}
+
+void SpectrumView::endGestures (Handle h)
+{
+    for (auto& id : paramsFor (h))
+        if (auto* p = processor.getState().getParameter (id))
+            p->endChangeGesture();
+}
+
+void SpectrumView::setSelectedBand (int index)
+{
+    if (index == selectedBand)
+        return;
+
+    selectedBand = index;
+    if (onBandSelected)
+        onBandSelected (index);
+    repaint();
+}
+
+void SpectrumView::addBandAt (juce::Point<float> pos)
+{
+    const auto s = processor.readSettings();
+
+    int index = -1;
+    for (int i = 0; i < ResonanceSuppressor::numBands; ++i)
+        if (! s.bands[(size_t) i].on) { index = i; break; }
+
+    if (index < 0)
+        return;   // all six bands in use
+
+    const float hz = juce::jlimit (20.0f, 20000.0f, freqForX (pos.x));
+    float gainDb = juce::jlimit (-18.0f, 18.0f, sensForY (pos.y) - ResonanceSuppressor::sensitivityDb (s, hz));
+    if (std::abs (gainDb) < 1.5f)
+        gainDb = 6.0f;   // double-clicked right on the curve: start with a useful boost
+
+    auto set = [this, index] (const char* field, float value)
+    {
+        if (auto* p = processor.getState().getParameter (ParamIDs::band (index, field)))
+        {
+            p->beginChangeGesture();
+            p->setValueNotifyingHost (p->convertTo0to1 (value));
+            p->endChangeGesture();
+        }
+    };
+
+    set (ParamIDs::bandShape, 0.0f);   // bell
+    set (ParamIDs::bandFreq, hz);
+    set (ParamIDs::bandGain, gainDb);
+    set (ParamIDs::bandQ, 1.0f);
+    set (ParamIDs::bandOn, 1.0f);
+
+    setSelectedBand (index);
+}
+
+void SpectrumView::removeBand (int index)
+{
+    if (auto* p = processor.getState().getParameter (ParamIDs::band (index, ParamIDs::bandOn)))
+    {
+        p->beginChangeGesture();
+        p->setValueNotifyingHost (0.0f);
+        p->endChangeGesture();
+    }
+
+    if (selectedBand == index)
+        setSelectedBand (-1);
+    repaint();
+}
+
+void SpectrumView::showBandMenu (int index)
+{
+    const auto s = processor.readSettings();
+    const int current = (int) s.bands[(size_t) index].shape;
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("Band " + juce::String (index + 1));
+    for (int k = 0; k < bandShapeNames().size(); ++k)
+        menu.addItem (k + 1, bandShapeNames()[k], true, k == current);
+    menu.addSeparator();
+    menu.addItem (100, "Remove band");
+
+    juce::Component::SafePointer<SpectrumView> safe (this);
+    menu.showMenuAsync (juce::PopupMenu::Options().withMousePosition(), [safe, index] (int result)
+    {
+        if (safe == nullptr || result == 0)
+            return;
+
+        if (result == 100)
+        {
+            safe->removeBand (index);
+            return;
+        }
+
+        if (auto* p = safe->processor.getState().getParameter (ParamIDs::band (index, ParamIDs::bandShape)))
+        {
+            p->beginChangeGesture();
+            p->setValueNotifyingHost (p->convertTo0to1 ((float) (result - 1)));
+            p->endChangeGesture();
+        }
+        safe->repaint();
+    });
 }
 
 void SpectrumView::mouseMove (const juce::MouseEvent& e)
@@ -144,57 +276,78 @@ void SpectrumView::mouseMove (const juce::MouseEvent& e)
     if (h != hovered)
     {
         hovered = h;
-        setMouseCursor (h == Handle::none ? juce::MouseCursor::NormalCursor
-                        : h == Handle::tilt ? juce::MouseCursor::UpDownResizeCursor
-                        : h == Handle::emphasis ? juce::MouseCursor::DraggingHandCursor
-                                                : juce::MouseCursor::LeftRightResizeCursor);
+        setMouseCursor (h.type == Handle::none ? juce::MouseCursor::NormalCursor
+                        : h.type == Handle::tilt ? juce::MouseCursor::UpDownResizeCursor
+                        : h.type == Handle::band ? juce::MouseCursor::DraggingHandCursor
+                                                 : juce::MouseCursor::LeftRightResizeCursor);
         repaint();
     }
 }
 
 void SpectrumView::mouseExit (const juce::MouseEvent&)
 {
-    hovered = Handle::none;
+    hovered = {};
     repaint();
 }
 
 void SpectrumView::mouseDown (const juce::MouseEvent& e)
 {
-    dragging = handleAt (e.position);
-    for (auto& id : paramsFor (dragging))
-        if (auto* p = processor.getState().getParameter (id))
-            p->beginChangeGesture();
+    const auto h = handleAt (e.position);
+
+    if (e.mods.isPopupMenu())
+    {
+        if (h.type == Handle::band)
+        {
+            setSelectedBand (h.index);
+            showBandMenu (h.index);
+        }
+        return;
+    }
+
+    dragging = h;
+    if (dragging.type == Handle::band)
+        setSelectedBand (dragging.index);
+    beginGestures (dragging);
 }
 
 void SpectrumView::mouseDrag (const juce::MouseEvent& e)
 {
-    if (dragging == Handle::none)
+    if (dragging.type == Handle::none)
         return;
 
-    auto s = processor.readSettings();
-    const float hz = freqForX (e.position.x);
+    const auto s = processor.readSettings();
+    const float hz = juce::jlimit (20.0f, 20000.0f, freqForX (e.position.x));
 
-    switch (dragging)
+    switch (dragging.type)
     {
         case Handle::low:  setParam (ParamIDs::lowFreq,  juce::jmin (hz, s.highHz)); break;
         case Handle::high: setParam (ParamIDs::highFreq, juce::jmax (hz, s.lowHz));  break;
 
-        case Handle::emphasis:
+        case Handle::tilt:
         {
-            const float f = juce::jlimit (100.0f, 12000.0f, hz);
-            const float tiltPart = s.tiltDbPerOct * std::log2 (f / 1000.0f);
-            setParam (ParamIDs::emphFreq, f);
-            setParam (ParamIDs::emphGain, juce::jlimit (-12.0f, 12.0f, sensForY (e.position.y) - tiltPart));
+            // y sets the curve value at tiltHandleHz; remove the bands' share first
+            auto noTilt = s;
+            noTilt.tiltDbPerOct = 0.0f;
+            const float others = ResonanceSuppressor::sensitivityDb (noTilt, tiltHandleHz);
+            setParam (ParamIDs::tilt, juce::jlimit (-3.0f, 3.0f, (sensForY (e.position.y) - others) / std::log2 (tiltHandleHz / 1000.0f)));
             break;
         }
 
-        case Handle::tilt:
+        case Handle::band:
         {
-            // y sets the curve value at tiltHandleHz; remove the emphasis share first
-            auto noTilt = s;
-            noTilt.tiltDbPerOct = 0.0f;
-            const float emphPart = ResonanceSuppressor::sensitivityDb (noTilt, tiltHandleHz);
-            setParam (ParamIDs::tilt, juce::jlimit (-3.0f, 3.0f, (sensForY (e.position.y) - emphPart) / std::log2 (tiltHandleHz / 1000.0f)));
+            // y sets the curve value at the band's frequency; everything else stays as it is
+            const int i = dragging.index;
+            auto without = s;
+            without.bands[(size_t) i].on = false;
+
+            auto unit = s.bands[(size_t) i];
+            unit.hz = hz;
+            unit.gainDb = 1.0f;
+            const float perDb = juce::jmax (0.25f, ResonanceSuppressor::bandCurveDb (unit, hz));  // 1 for bells, 0.5 for shelves
+
+            const float gainDb = (sensForY (e.position.y) - ResonanceSuppressor::sensitivityDb (without, hz)) / perDb;
+            setParam (ParamIDs::band (i, ParamIDs::bandFreq), hz);
+            setParam (ParamIDs::band (i, ParamIDs::bandGain), juce::jlimit (-18.0f, 18.0f, gainDb));
             break;
         }
 
@@ -207,16 +360,27 @@ void SpectrumView::mouseDrag (const juce::MouseEvent& e)
 
 void SpectrumView::mouseUp (const juce::MouseEvent&)
 {
-    for (auto& id : paramsFor (dragging))
-        if (auto* p = processor.getState().getParameter (id))
-            p->endChangeGesture();
-
-    dragging = Handle::none;
+    endGestures (dragging);
+    dragging = {};
 }
 
 void SpectrumView::mouseDoubleClick (const juce::MouseEvent& e)
 {
-    for (auto& id : paramsFor (handleAt (e.position)))
+    const auto h = handleAt (e.position);
+
+    if (h.type == Handle::band)
+    {
+        removeBand (h.index);
+        return;
+    }
+
+    if (h.type == Handle::none)
+    {
+        addBandAt (e.position);
+        return;
+    }
+
+    for (auto& id : paramsFor (h))   // low / high / tilt: back to the default
         if (auto* p = processor.getState().getParameter (id))
         {
             p->beginChangeGesture();
@@ -224,6 +388,27 @@ void SpectrumView::mouseDoubleClick (const juce::MouseEvent& e)
             p->endChangeGesture();
         }
 
+    repaint();
+}
+
+void SpectrumView::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
+{
+    const auto h = handleAt (e.position);
+    if (h.type != Handle::band)
+        return;
+
+    // wheel up = narrower (higher Q)
+    if (auto* p = processor.getState().getParameter (ParamIDs::band (h.index, ParamIDs::bandQ)))
+    {
+        const float q = processor.readSettings().bands[(size_t) h.index].q;
+        const float next = juce::jlimit (0.3f, 8.0f, q * std::pow (2.0f, wheel.deltaY * 2.5f));
+        p->beginChangeGesture();
+        p->setValueNotifyingHost (p->convertTo0to1 (next));
+        p->endChangeGesture();
+    }
+
+    setSelectedBand (h.index);
+    hovered = h;
     repaint();
 }
 
@@ -272,7 +457,7 @@ void SpectrumView::paint (juce::Graphics& g)
     g.setColour (Colours::panel);
     g.fillRoundedRectangle (bounds, 8.0f);
 
-    // frequency grid + labels (top)
+    // frequency grid + labels
     g.setFont (juce::FontOptions (11.0f));
     for (float hz : { 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f })
     {
@@ -294,6 +479,17 @@ void SpectrumView::paint (juce::Graphics& g)
     g.setColour (juce::Colours::black.withAlpha (0.4f));
     g.fillRect (juce::Rectangle<float> (0.0f, 0.0f, xLo, h));
     g.fillRect (juce::Rectangle<float> (xHi, 0.0f, w - xHi, h));
+
+    // with band-pass bands active, everything outside them is left alone: shade it
+    for (int i = 0; i + 1 < numPoints; ++i)
+    {
+        const float wgt = ResonanceSuppressor::focusWeight (s, pointHz[(size_t) i]);
+        if (wgt >= 0.999f)
+            continue;
+        const float x0 = xForFreq (pointHz[(size_t) i]), x1 = xForFreq (pointHz[(size_t) i + 1]);
+        g.setColour (juce::Colours::black.withAlpha (0.45f * (1.0f - wgt)));
+        g.fillRect (juce::Rectangle<float> (x0, 0.0f, x1 - x0 + 0.5f, h));
+    }
 
     auto curve = [&] (const std::array<float, numPoints>& values, auto&& yFor)
     {
@@ -366,6 +562,25 @@ void SpectrumView::paint (juce::Graphics& g)
         g.strokePath (red, juce::PathStrokeType (1.5f));
     }
 
+    // the selected band's own shape, around the neutral line
+    if (selectedBand >= 0 && s.bands[(size_t) selectedBand].on)
+    {
+        const auto& b = s.bands[(size_t) selectedBand];
+        const float y0 = yForSens (0.0f);
+        juce::Path shape;
+        shape.startNewSubPath (0.0f, y0);
+        for (int i = 0; i < numPoints; ++i)
+        {
+            const float hz = pointHz[(size_t) i];
+            shape.lineTo (xForFreq (hz), yForSens (juce::jlimit (-sensRangeDb * 1.3f, sensRangeDb * 1.3f,
+                                                                 ResonanceSuppressor::bandCurveDb (b, hz))));
+        }
+        shape.lineTo (w, y0);
+        shape.closeSubPath();
+        g.setColour (bandColour (selectedBand).withAlpha (0.16f));
+        g.fillPath (shape);
+    }
+
     // detection curve (editable)
     {
         juce::Path sens;
@@ -384,11 +599,13 @@ void SpectrumView::paint (juce::Graphics& g)
     {
         const auto pos = handlePosition (hd, s);
         const bool active = hd == hovered || hd == dragging;
-        const float grow = active ? 1.25f : 1.0f;
+        const float grow = active ? 1.2f : 1.0f;
 
         juce::Rectangle<float> r;
-        if (hd == Handle::low || hd == Handle::high)
+        if (hd.type == Handle::low || hd.type == Handle::high)
             r = juce::Rectangle<float> (8.0f * grow, 22.0f * grow).withCentre (pos);
+        else if (hd.type == Handle::band)
+            r = juce::Rectangle<float> (18.0f * grow, 18.0f * grow).withCentre (pos);
         else
             r = juce::Rectangle<float> (13.0f * grow, 13.0f * grow).withCentre (pos);
 
@@ -398,26 +615,40 @@ void SpectrumView::paint (juce::Graphics& g)
             g.fillRoundedRectangle (r.expanded (5.0f), r.getWidth() * 0.5f + 5.0f);
         }
 
+        if (hd.type == Handle::band && hd.index == selectedBand)
+        {
+            g.setColour (Colours::text);
+            g.drawEllipse (r.expanded (3.0f), 1.6f);
+        }
+
         g.setColour (c);
         g.fillRoundedRectangle (r, r.getWidth() * 0.5f);
         g.setColour (Colours::background);
         g.drawRoundedRectangle (r, r.getWidth() * 0.5f, 1.5f);
+
+        if (hd.type == Handle::band)
+        {
+            g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+            g.drawText (juce::String (hd.index + 1), r, juce::Justification::centred);
+        }
     };
 
-    drawHandle (Handle::low,      Colours::range);
-    drawHandle (Handle::high,     Colours::range);
-    drawHandle (Handle::tilt,     Colours::tiltColour);
-    drawHandle (Handle::emphasis, Colours::sensitive);
+    drawHandle ({ Handle::low,  -1 }, Colours::range);
+    drawHandle ({ Handle::high, -1 }, Colours::range);
+    drawHandle ({ Handle::tilt, -1 }, Colours::tiltColour);
+    for (int i = 0; i < ResonanceSuppressor::numBands; ++i)
+        if (s.bands[(size_t) i].on)
+            drawHandle ({ Handle::band, i }, bandColour (i));
 
-    // read-out for the active handle, or a hint
-    const auto shown = dragging != Handle::none ? dragging : hovered;
+    // read-out for the active handle
+    const auto shown = dragging.type != Handle::none ? dragging : hovered;
     g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
-    if (shown != Handle::none)
+    if (shown.type != Handle::none)
     {
         const auto pos  = handlePosition (shown, s);
         const auto text = describe (shown, s);
         const float tw  = (float) juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), text) + 16.0f;
-        auto box = juce::Rectangle<float> (tw, 22.0f).withCentre (pos.translated (0.0f, pos.y > 40.0f ? -26.0f : 26.0f));
+        auto box = juce::Rectangle<float> (tw, 22.0f).withCentre (pos.translated (0.0f, pos.y > 40.0f ? -28.0f : 28.0f));
         box = box.constrainedWithin (bounds.reduced (4.0f));
         g.setColour (Colours::background.withAlpha (0.9f));
         g.fillRoundedRectangle (box, 5.0f);
@@ -448,6 +679,135 @@ void SpectrumView::paint (juce::Graphics& g)
         g.setColour (connected ? Colours::sidechain : juce::Colour (0xffe05a5a));
         g.drawText (connected ? "Sidechain" : "No sidechain signal - check routing",
                     legend.withLeft (w - 300.0f), juce::Justification::right);
+    }
+}
+
+//==============================================================================
+BandStrip::BandStrip (SenseiSmoothAudioProcessor& p) : processor (p)
+{
+    shapeBox.addItemList (bandShapeNames(), 1);
+    shapeBox.setTooltip ("Bell / shelves change the sensitivity. Band Pass: only reduce inside this band.");
+
+    auto setupBar = [this] (juce::Slider& s, juce::Label& l, const juce::String& name, const juce::String& tip)
+    {
+        s.setSliderStyle (juce::Slider::LinearBar);
+        s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 0, 0);
+        s.getProperties().set ("fontSize", 12.0f);
+        s.setTooltip (tip);
+        addChildComponent (s);
+
+        l.setText (name, juce::dontSendNotification);
+        l.setJustificationType (juce::Justification::centredRight);
+        l.setColour (juce::Label::textColourId, Colours::dimText);
+        l.setFont (juce::FontOptions (12.0f));
+        addChildComponent (l);
+    };
+    setupBar (freq, freqLabel, "Freq", "Centre / corner frequency of the band.");
+    setupBar (gain, gainLabel, "Gain", "+ = more sensitive (more reduction here), - = less.");
+    setupBar (q,    qLabel,    "Q",    "Width of the band: low = broad, high = narrow. Mouse wheel on the point works too.");
+
+    onButton.setTooltip ("Switch this band on or off.");
+    removeButton.setTooltip ("Remove this band.");
+    removeButton.onClick = [this]
+    {
+        if (band < 0)
+            return;
+        if (auto* prm = processor.getState().getParameter (ParamIDs::band (band, ParamIDs::bandOn)))
+        {
+            prm->beginChangeGesture();
+            prm->setValueNotifyingHost (0.0f);
+            prm->endChangeGesture();
+        }
+        if (onRemove)
+            onRemove();
+    };
+
+    addChildComponent (onButton);
+    addChildComponent (shapeBox);
+    addChildComponent (removeButton);
+
+    hint.setText ("Double-click the display to add a band. Drag it, use the mouse wheel for its width, right-click for its shape.",
+                  juce::dontSendNotification);
+    hint.setColour (juce::Label::textColourId, Colours::dimText);
+    hint.setFont (juce::FontOptions (12.0f));
+    addAndMakeVisible (hint);
+
+    setBand (-1);
+}
+
+void BandStrip::setBand (int index)
+{
+    band = index;
+
+    onAttachment.reset();
+    shapeAttachment.reset();
+    freqAttachment.reset();
+    gainAttachment.reset();
+    qAttachment.reset();
+
+    const bool has = band >= 0;
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &onButton, &shapeBox, &freq, &gain, &q,
+                                                                         &freqLabel, &gainLabel, &qLabel, &removeButton })
+        c->setVisible (has);
+    hint.setVisible (! has);
+
+    if (has)
+    {
+        auto& st = processor.getState();
+        using APVTS = juce::AudioProcessorValueTreeState;
+        onAttachment    = std::make_unique<APVTS::ButtonAttachment>   (st, ParamIDs::band (band, ParamIDs::bandOn), onButton);
+        shapeAttachment = std::make_unique<APVTS::ComboBoxAttachment> (st, ParamIDs::band (band, ParamIDs::bandShape), shapeBox);
+        freqAttachment  = std::make_unique<APVTS::SliderAttachment>   (st, ParamIDs::band (band, ParamIDs::bandFreq), freq);
+        gainAttachment  = std::make_unique<APVTS::SliderAttachment>   (st, ParamIDs::band (band, ParamIDs::bandGain), gain);
+        qAttachment     = std::make_unique<APVTS::SliderAttachment>   (st, ParamIDs::band (band, ParamIDs::bandQ), q);
+
+        const auto c = SpectrumView::bandColour (band);
+        for (auto* s : { &freq, &gain, &q })
+        {
+            s->setColour (juce::Slider::rotarySliderFillColourId, c);
+            s->repaint();
+        }
+        onButton.setColour (juce::ToggleButton::tickColourId, c);
+    }
+
+    resized();
+    repaint();
+}
+
+void BandStrip::paint (juce::Graphics& g)
+{
+    g.setColour (Colours::panel);
+    g.fillRoundedRectangle (getLocalBounds().toFloat(), 8.0f);
+
+    if (band >= 0)
+    {
+        const auto dot = juce::Rectangle<float> (12.0f, (float) getHeight() * 0.5f - 11.0f, 22.0f, 22.0f);
+        g.setColour (SpectrumView::bandColour (band));
+        g.fillEllipse (dot);
+        g.setColour (Colours::background);
+        g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        g.drawText (juce::String (band + 1), dot, juce::Justification::centred);
+    }
+}
+
+void BandStrip::resized()
+{
+    auto area = getLocalBounds().reduced (10, 7);
+    hint.setBounds (area);
+
+    area.removeFromLeft (34);   // band number dot
+    onButton.setBounds (area.removeFromLeft (52));
+    area.removeFromLeft (6);
+    shapeBox.setBounds (area.removeFromLeft (112));
+    removeButton.setBounds (area.removeFromRight (72));
+    area.removeFromRight (8);
+
+    const int cell = area.getWidth() / 3;
+    for (auto [s, l] : { std::pair<juce::Slider*, juce::Label*> { &freq, &freqLabel }, { &gain, &gainLabel }, { &q, &qLabel } })
+    {
+        auto c = area.removeFromLeft (cell);
+        l->setBounds (c.removeFromLeft (40).withTrimmedRight (6));
+        s->setBounds (c.withTrimmedRight (8));
     }
 }
 
@@ -554,7 +914,7 @@ void SenseiSmoothLookAndFeel::drawLinearSlider (juce::Graphics& g, int x, int y,
 
 //==============================================================================
 SenseiSmoothAudioProcessorEditor::SenseiSmoothAudioProcessorEditor (SenseiSmoothAudioProcessor& p)
-    : AudioProcessorEditor (&p), processor (p), spectrum (p)
+    : AudioProcessorEditor (&p), processor (p), spectrum (p), bandStrip (p)
 {
     logo = juce::Drawable::createFromImageData (SenseiSmoothAssets::ss_logo_white_svg,
                                                 (size_t) SenseiSmoothAssets::ss_logo_white_svgSize);
@@ -562,6 +922,9 @@ SenseiSmoothAudioProcessorEditor::SenseiSmoothAudioProcessorEditor (SenseiSmooth
         logo->replaceColour (juce::Colours::white, Colours::text);   // washi instead of pure white
 
     addAndMakeVisible (spectrum);
+    addAndMakeVisible (bandStrip);
+    spectrum.onBandSelected = [this] (int index) { bandStrip.setBand (index); };
+    bandStrip.onRemove = [this] { spectrum.setSelectedBand (-1); };
 
     addControl (amount,    ParamIDs::depth,       "Amount",    Size::large,
                 "Maximum reduction per frequency. Start here.");
@@ -590,8 +953,8 @@ SenseiSmoothAudioProcessorEditor::SenseiSmoothAudioProcessorEditor (SenseiSmooth
     deltaAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (processor.getState(), ParamIDs::delta, deltaButton);
 
     setResizable (true, true);
-    setResizeLimits (800, 520, 1800, 1100);
-    setSize (980, 620);
+    setResizeLimits (800, 570, 1800, 1150);
+    setSize (980, 670);
 
     // Set last so the change propagates to all children (sliders rebuild their
     // text boxes with the custom colours and fonts).
@@ -686,7 +1049,7 @@ void SenseiSmoothAudioProcessorEditor::paint (juce::Graphics& g)
 
     g.setColour (Colours::dimText);
     g.setFont (juce::FontOptions (11.0f));
-    g.drawText ("Drag the points in the display to shape the detection  -  double-click resets",
+    g.drawText ("Double-click the display to add a band  -  drag points  -  wheel = width  -  right-click = shape",
                 bottomBar.withTrimmedLeft (120).withRight (mix.label.getX() - 12), juce::Justification::centredLeft);
 }
 
@@ -721,6 +1084,8 @@ void SenseiSmoothAudioProcessorEditor::resized()
     // side panel with a clear size hierarchy
     panelArea = area.removeFromRight (230);
     area.removeFromRight (10);
+    bandStrip.setBounds (area.removeFromBottom (44));
+    area.removeFromBottom (8);
     spectrum.setBounds (area);
 
     auto panel = panelArea.reduced (12, 10);

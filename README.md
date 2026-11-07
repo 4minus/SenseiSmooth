@@ -24,7 +24,8 @@ is the current reduction, and the gold line is the editable detection curve.*
 - Spectral (STFT) processing with smooth per-frequency gain, no phase smearing between dry and wet
 - **Input mode:** detects resonances relative to the track's own spectrum
 - **Sidechain mode:** cuts the track where another signal (e.g. vocals) needs space
-- Editable detection curve: drag points for range, emphasis and tilt directly in the display
+- Editable detection curve with up to 6 bands (bell, shelves, band pass), tilt and range, edited right in the display
+- **Band pass:** reduce only inside chosen frequency ranges
 - Stereo Link, L / R, Mid / Side, Mid only, Side only
 - Delta listening with a live spectrum of the removed signal
 - Mix and output, latency reported to the host
@@ -36,7 +37,7 @@ is the current reduction, and the gold line is the editable detection curve.*
 2. Turn up **Amount** until the harshness calms down.
 3. Use **Precision** for narrower or broader cuts, and **Threshold** to decide how much a peak must stick out.
 4. Switch on **Delta** to hear (and see) only what is being removed. If you hear musical content there, back off.
-5. Shape the detection in the display: pull the gold point up where it should work harder, down where it should leave things alone.
+5. Shape the detection in the display: double-click to add a band, pull it up where Sensei Smooth should work harder, down where it should leave things alone. Use **Band Pass** bands to work only in specific ranges.
 
 ## Controls
 
@@ -50,15 +51,33 @@ is the current reduction, and the gold line is the editable detection curve.*
 | Attack | 0.5–100 ms | How fast the reduction reacts |
 | Release | 5–1000 ms | How fast it lets go |
 
-**Display** (drag points, double-click resets, hover shows the value)
+**Display** (hover shows the value)
 
 | Point | Controls | What it does |
 |-------|----------|--------------|
-| Cream pills | Low / High (20 Hz–20 kHz) | Processing range, with half-octave fades |
-| Gold point | Emphasis freq + amount (100 Hz–12 kHz, ±12 dB) | More or less sensitivity around one frequency |
-| Matcha (green) point | Tilt (±3 dB/oct around 1 kHz) | Shifts sensitivity towards lows or highs |
+| Cream pills | Low / High (20 Hz–20 kHz) | Processing range, with half-octave fades. Double-click resets. |
+| Matcha (green) point | Tilt (±3 dB/oct around 1 kHz) | Shifts sensitivity towards lows or highs. Double-click resets. |
+| Numbered points 1–6 | Detection bands | See below |
 
 Curve up = more sensitive (more reduction), curve down = less sensitive.
+
+**Detection bands** (up to 6, all automatable)
+
+| Action | Result |
+|--------|--------|
+| Double-click an empty spot | Adds a band there |
+| Drag a band | Frequency (x) and gain (y) |
+| Mouse wheel on a band | Width (Q) |
+| Right-click a band | Shape menu, remove |
+| Double-click a band | Removes it |
+
+| Shape | What it does |
+|-------|--------------|
+| Bell | More (+) or less (−) sensitivity around a frequency |
+| Low Shelf / High Shelf | More or less sensitivity below / above a frequency |
+| Band Pass | Only reduce inside this band. As soon as one band-pass band is on, everything outside all band-pass bands is left alone (shaded in the display). Its gain still sets the sensitivity inside. |
+
+The selected band's controls (On, Shape, Freq, Gain ±18 dB, Q 0.3–8, Remove) appear in the strip below the display.
 
 **Header and bottom bar**
 
@@ -118,10 +137,10 @@ sidechain (reduction, silence, not connected, below threshold) and all channel m
 GUI snapshot (renders the editor offscreen with a test signal):
 
 ```bash
-build/SenseiSmoothSnapshot_artefacts/Release/SenseiSmoothSnapshot.exe out.png [sc|drag|delta]
+build/SenseiSmoothSnapshot_artefacts/Release/SenseiSmoothSnapshot.exe out.png [input|bands|sc|drag|delta] [scale]
 ```
 
-`sc` = sidechain mode with a vocal-like sidechain, `drag` = drags the emphasis point with synthetic
+`sc` = sidechain mode with a vocal-like sidechain, `bands` = two band-pass bands with the band strip, `drag` = drags, adds and removes bands with synthetic
 mouse events and prints the result, `delta` = delta view.
 
 ## Project Layout
@@ -154,7 +173,7 @@ Colour scheme "Sumi & Shu" (traditional Japanese colours):
 | Background | Sumi (ink) | `#111113` |
 | Text, logo | Washi (paper) | `#EDE6D6` |
 | Accent: reduction, main controls | Shu (vermilion) | `#E4472B` |
-| Detection curve, emphasis | Kin (gold) | `#D6A84E` |
+| Detection curve, band 1 | Kin (gold) | `#D6A84E` |
 | Tilt | Matcha | `#9DB06A` |
 | Sidechain | Ai (indigo) | `#79A6D9` |
 

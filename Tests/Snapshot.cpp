@@ -1,8 +1,9 @@
 // Renders the plugin editor offscreen (after feeding a test signal) to a PNG.
-// Usage: SenseiSmoothSnapshot <output.png> [input|sc|drag|delta] [scale]
-//   input: default view (emphasis + tilt set)
+// Usage: SenseiSmoothSnapshot <output.png> [input|bands|sc|drag|delta] [scale]
+//   input: default view (one bell band + tilt set)
+//   bands: two band-pass bands, band 1 selected (shows the band strip)
 //   sc:    sidechain mode - the sidechain gets a vocal-like harmonic signal
-//   drag:  drags the emphasis point with synthetic mouse events
+//   drag:  drags band 1 with synthetic mouse events
 //   delta: delta view
 //   scale: render scale, e.g. 2 for high-DPI images (default 1)
 
@@ -14,21 +15,25 @@
 
 namespace
 {
-    void setParam (SenseiSmoothAudioProcessor& p, const char* id, float value)
+    void setParam (SenseiSmoothAudioProcessor& p, const juce::String& id, float value)
     {
         auto* param = p.getState().getParameter (id);
         param->setValueNotifyingHost (param->convertTo0to1 (value));
     }
 
-    /** Drags the emphasis point to 800 Hz / +9 dB with synthetic mouse events and
-        leaves the pointer hovering there (so the read-out is visible). */
-    void simulateEmphasisDrag (SenseiSmoothAudioProcessor& processor, juce::Component& editor)
+    SpectrumView* findSpectrum (juce::Component& editor)
     {
-        SpectrumView* view = nullptr;
         for (auto* c : editor.getChildren())
-            if ((view = dynamic_cast<SpectrumView*> (c)) != nullptr)
-                break;
+            if (auto* view = dynamic_cast<SpectrumView*> (c))
+                return view;
+        return nullptr;
+    }
 
+    /** Drags band 1 to 800 Hz / +9 dB with synthetic mouse events and
+        leaves the pointer hovering there (so the read-out is visible). */
+    void simulateBandDrag (SenseiSmoothAudioProcessor& processor, juce::Component& editor)
+    {
+        auto* view = findSpectrum (editor);
         if (view == nullptr) { std::printf ("SpectrumView not found\n"); return; }
 
         const float w = (float) view->getWidth(), h = (float) view->getHeight();
@@ -36,7 +41,8 @@ namespace
         auto yFor = [h] (float db) { return h * (0.5f - 0.35f * db / 15.0f); };
 
         const auto s = processor.readSettings();
-        const juce::Point<float> from (xFor (s.emphasisHz), yFor (ResonanceSuppressor::sensitivityDb (s, s.emphasisHz)));
+        const float bandHz = s.bands[0].hz;
+        const juce::Point<float> from (xFor (bandHz), yFor (ResonanceSuppressor::sensitivityDb (s, bandHz)));
         const juce::Point<float> to (xFor (800.0f), yFor (9.0f));
 
         auto src = juce::Desktop::getInstance().getMainMouseSource();
@@ -54,8 +60,28 @@ namespace
         view->mouseMove (event (to, false));
 
         const auto after = processor.readSettings();
-        std::printf ("emphasis after drag: %.0f Hz, %+.2f dB (expected ~800 Hz, ~+8.7 dB)\n",
-                     after.emphasisHz, after.emphasisDb);
+        std::printf ("band 1 after drag: %.0f Hz, %+.2f dB (expected ~800 Hz, ~+8.7 dB), selected band %d\n",
+                     after.bands[0].hz, after.bands[0].gainDb, view->getSelectedBand());
+
+        // double-click an empty spot -> a second band appears there and gets selected
+        const juce::Point<float> empty (xFor (5000.0f), yFor (-6.0f));
+        view->mouseDoubleClick (event (empty, false));
+        auto s2 = processor.readSettings();
+        std::printf ("after double-click at 5 kHz: band 2 on=%d, %.0f Hz, %+.1f dB, selected band %d\n",
+                     (int) s2.bands[1].on, s2.bands[1].hz, s2.bands[1].gainDb, view->getSelectedBand());
+
+        // mouse wheel on band 1 -> narrower
+        juce::MouseWheelDetails wheel { 0.0f, 0.2f, false, false, false };
+        view->mouseWheelMove (event (to, false), wheel);
+        std::printf ("after wheel on band 1: Q %.2f (was 1.00, expect > 1)\n", processor.readSettings().bands[0].q);
+
+        // double-click band 2 -> removed, selection cleared
+        const auto p2 = juce::Point<float> (xFor (s2.bands[1].hz), yFor (ResonanceSuppressor::sensitivityDb (s2, s2.bands[1].hz)));
+        view->mouseDoubleClick (event (p2, false));
+        std::printf ("after double-click on band 2: on=%d, selected band %d\n",
+                     (int) processor.readSettings().bands[1].on, view->getSelectedBand());
+
+        view->mouseMove (event (to, false));
     }
 }
 
@@ -67,6 +93,7 @@ int main (int argc, char** argv)
     const bool sidechainMode = argc > 2 && juce::String (argv[2]) == "sc";
     const bool dragMode      = argc > 2 && juce::String (argv[2]) == "drag";
     const bool deltaMode     = argc > 2 && juce::String (argv[2]) == "delta";
+    const bool bandsMode     = argc > 2 && juce::String (argv[2]) == "bands";
     const float renderScale  = argc > 3 ? juce::jlimit (0.5f, 4.0f, juce::String (argv[3]).getFloatValue()) : 1.0f;
 
     SenseiSmoothAudioProcessor processor;
@@ -79,10 +106,25 @@ int main (int argc, char** argv)
         processor.enableAllBuses();
         setParam (processor, ParamIDs::detect, 1.0f);
     }
+    else if (bandsMode)
+    {
+        // two band-pass bands: only the 350 Hz and 2.8 kHz regions are processed
+        setParam (processor, ParamIDs::band (0, ParamIDs::bandOn), 1.0f);
+        setParam (processor, ParamIDs::band (0, ParamIDs::bandShape), 3.0f);
+        setParam (processor, ParamIDs::band (0, ParamIDs::bandFreq), 2800.0f);
+        setParam (processor, ParamIDs::band (0, ParamIDs::bandGain), 6.0f);
+        setParam (processor, ParamIDs::band (0, ParamIDs::bandQ), 1.4f);
+        setParam (processor, ParamIDs::band (1, ParamIDs::bandOn), 1.0f);
+        setParam (processor, ParamIDs::band (1, ParamIDs::bandShape), 3.0f);
+        setParam (processor, ParamIDs::band (1, ParamIDs::bandFreq), 350.0f);
+        setParam (processor, ParamIDs::band (1, ParamIDs::bandGain), 3.0f);
+        setParam (processor, ParamIDs::band (1, ParamIDs::bandQ), 1.8f);
+    }
     else
     {
-        setParam (processor, ParamIDs::emphFreq, 3000.0f);
-        setParam (processor, ParamIDs::emphGain, 6.0f);
+        setParam (processor, ParamIDs::band (0, ParamIDs::bandOn), 1.0f);
+        setParam (processor, ParamIDs::band (0, ParamIDs::bandFreq), 3000.0f);
+        setParam (processor, ParamIDs::band (0, ParamIDs::bandGain), 6.0f);
         setParam (processor, ParamIDs::tilt, -1.0f);
     }
 
@@ -140,7 +182,10 @@ int main (int argc, char** argv)
     juce::Timer::callAfterDelay (800, [&]
     {
         if (dragMode)
-            simulateEmphasisDrag (processor, *editor);
+            simulateBandDrag (processor, *editor);
+        if (bandsMode)
+            if (auto* view = findSpectrum (*editor))
+                view->setSelectedBand (0);
 
         const auto image = editor->createComponentSnapshot (editor->getLocalBounds(), true, renderScale);
 

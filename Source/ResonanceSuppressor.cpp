@@ -12,7 +12,13 @@ namespace
     constexpr int   maxDilation      = 32;      // cap for the peak-widening (max) filter in bins
     constexpr double detectorMs      = 25.0;    // time constant of the detector power average
     constexpr float sidechainLeadDb  = 6.0f;    // sidechain mode: cut until the sidechain leads by this much
-    constexpr float emphasisSigmaOct = 0.5f;    // bell width of the detection EQ band
+
+    /** Bandwidth in octaves for a Q value (classic EQ relation). Q 1 ~ 1.4 oct, Q 4 ~ 0.36 oct. */
+    inline float bandwidthOct (float q) noexcept
+    {
+        q = juce::jmax (0.05f, q);
+        return 2.0f * std::asinh (1.0f / (2.0f * q)) / std::log (2.0f);
+    }
 
     inline float smoothstep (float t) noexcept
     {
@@ -44,12 +50,53 @@ ResonanceSuppressor::ResonanceSuppressor()
     }
 }
 
+float ResonanceSuppressor::bandCurveDb (const Band& b, float hz) noexcept
+{
+    const float d  = std::log2 (juce::jmax (1.0f, hz) / juce::jmax (10.0f, b.hz));   // distance in octaves
+    const float bw = bandwidthOct (b.q);
+
+    switch (b.shape)
+    {
+        case BandShape::lowShelf:  return b.gainDb / (1.0f + std::exp (d / (bw * 0.25f)));
+        case BandShape::highShelf: return b.gainDb / (1.0f + std::exp (-d / (bw * 0.25f)));
+        case BandShape::bell:
+        case BandShape::bandPass:
+        default:
+        {
+            const float sigma = bw / 2.3548f;          // bandwidth = full width at half maximum
+            return b.gainDb * std::exp (-0.5f * (d / sigma) * (d / sigma));
+        }
+    }
+}
+
 float ResonanceSuppressor::sensitivityDb (const Settings& s, float hz) noexcept
 {
     hz = juce::jmax (20.0f, hz);
-    const float tilt = s.tiltDbPerOct * std::log2 (hz / 1000.0f);
-    const float d    = std::log2 (hz / juce::jmax (20.0f, s.emphasisHz)) / emphasisSigmaOct;
-    return tilt + s.emphasisDb * std::exp (-0.5f * d * d);
+    float db = s.tiltDbPerOct * std::log2 (hz / 1000.0f);
+    for (const auto& b : s.bands)
+        if (b.on)
+            db += bandCurveDb (b, hz);
+    return db;
+}
+
+float ResonanceSuppressor::focusWeight (const Settings& s, float hz) noexcept
+{
+    bool anyBandPass = false;
+    float w = 0.0f;
+
+    for (const auto& b : s.bands)
+    {
+        if (! b.on || b.shape != BandShape::bandPass)
+            continue;
+
+        anyBandPass = true;
+        // flat-topped window: 1 inside, 0.5 at the band edges, quickly 0 outside
+        const float half = bandwidthOct (b.q) * 0.5f;
+        const float d = std::abs (std::log2 (juce::jmax (1.0f, hz) / juce::jmax (10.0f, b.hz))) / half;
+        w = juce::jmax (w, std::exp (-0.6931f * d * d * d * d));
+    }
+
+    return anyBandPass ? w : 1.0f;
 }
 
 void ResonanceSuppressor::prepare (double newSampleRate, int numChannels)
@@ -109,8 +156,7 @@ void ResonanceSuppressor::prepare (double newSampleRate, int numChannels)
         envHi[(size_t) k] = juce::jmin (numBins - 1, juce::jmax (k + envMinHalf, (int) std::ceil  ((float) k * envRatio)));
     }
 
-    tSharpness = tLow = tHigh = tEmphHz = -1.0f;
-    tTilt = tEmphDb = -100.0f;
+    tablesValid = false;
     updateTables();
 
     reset();
@@ -136,16 +182,16 @@ void ResonanceSuppressor::updateTables() noexcept
 
     auto same = [] (float a, float b) { return std::abs (a - b) < 1.0e-4f; };
 
-    if (same (s.sharpness, tSharpness) && same (s.lowHz, tLow) && same (s.highHz, tHigh)
-        && same (s.tiltDbPerOct, tTilt) && same (s.emphasisHz, tEmphHz) && same (s.emphasisDb, tEmphDb))
+    if (tablesValid && same (s.sharpness, tSharpness) && same (s.lowHz, tLow) && same (s.highHz, tHigh)
+        && same (s.tiltDbPerOct, tTilt) && s.bands == tBands)
         return;
 
-    tSharpness = s.sharpness;
-    tLow       = s.lowHz;
-    tHigh      = s.highHz;
-    tTilt      = s.tiltDbPerOct;
-    tEmphHz    = s.emphasisHz;
-    tEmphDb    = s.emphasisDb;
+    tablesValid = true;
+    tSharpness  = s.sharpness;
+    tLow        = s.lowHz;
+    tHigh       = s.highHz;
+    tTilt       = s.tiltDbPerOct;
+    tBands      = s.bands;
 
     // Width of the reduction smoothing: 1/3 octave (soft) .. 1/24 octave (surgical)
     const float widthOct = juce::jmap (juce::jlimit (0.0f, 1.0f, s.sharpness), 1.0f / 3.0f, 1.0f / 24.0f);
@@ -163,7 +209,7 @@ void ResonanceSuppressor::updateTables() noexcept
         const float f = juce::jmax (1.0e-3f, (float) k * binHz);
         const float tLowFade  = 1.0f + std::log2 (f / lo) / 0.5f;   // half-octave fade below lowHz
         const float tHighFade = 1.0f - std::log2 (f / hi) / 0.5f;   // half-octave fade above highHz
-        rangeWeight[(size_t) k] = k == 0 ? 0.0f : smoothstep (tLowFade) * smoothstep (tHighFade);
+        rangeWeight[(size_t) k] = k == 0 ? 0.0f : smoothstep (tLowFade) * smoothstep (tHighFade) * focusWeight (s, f);
         sensitivity[(size_t) k] = sensitivityDb (s, f);
     }
 }

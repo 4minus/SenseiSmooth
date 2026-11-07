@@ -2,6 +2,7 @@
 
 #include <juce_dsp/juce_dsp.h>
 
+#include <array>
 #include <atomic>
 #include <memory>
 #include <vector>
@@ -19,7 +20,9 @@
       the main signal competes with it. The cut is limited so that the
       sidechain leads the main signal by a fixed margin, never more.
 
-    A detection EQ (tilt + one bell band) shifts the sensitivity per frequency.
+    A detection EQ (tilt + up to six bands) shifts the sensitivity per frequency.
+    Band-pass bands additionally restrict the processing to their own ranges:
+    as soon as one is active, nothing outside the band-pass bands is reduced.
     Stereo can be processed linked, independent L/R, or as Mid/Side (both, or
     only one of them).
 
@@ -31,6 +34,25 @@ class ResonanceSuppressor
 public:
     enum class DetectSource { input, sidechain };
     enum class ChannelMode  { linked, independent, midSide, midOnly, sideOnly };
+    enum class BandShape    { bell, lowShelf, highShelf, bandPass };
+
+    static constexpr int numBands = 6;
+
+    /** One band of the detection EQ. */
+    struct Band
+    {
+        bool      on     = false;
+        BandShape shape  = BandShape::bell;
+        float     hz     = 1000.0f;
+        float     gainDb = 6.0f;      // + = more sensitive (more reduction), - = less
+        float     q      = 1.0f;      // width: 0.3 (very broad) .. 8 (narrow)
+
+        bool operator== (const Band& o) const noexcept
+        {
+            return on == o.on && shape == o.shape && hz == o.hz && gainDb == o.gainDb && q == o.q;
+        }
+        bool operator!= (const Band& o) const noexcept { return ! (*this == o); }
+    };
 
     struct Settings
     {
@@ -42,8 +64,7 @@ public:
         float lowHz        = 80.0f;    // processing range
         float highHz       = 18000.0f;
         float tiltDbPerOct = 0.0f;     // detection EQ: + = more sensitive towards highs (pivot 1 kHz)
-        float emphasisHz   = 3000.0f;  // detection EQ: bell band
-        float emphasisDb   = 0.0f;     //   + = more sensitive around emphasisHz
+        std::array<Band, numBands> bands {};
         float mix          = 1.0f;     // 0 .. 1
         float outputGainDb = 0.0f;
         bool  delta        = false;    // listen to what gets removed
@@ -78,8 +99,15 @@ public:
     /** Absolute sidechain threshold (display dB units) for a given threshold setting. */
     static float sidechainThresholdDb (float threshold) noexcept { return -90.0f + 60.0f * threshold; }
 
-    /** Detection-EQ offset in dB at a frequency (used by DSP and display). */
+    /** Detection-EQ offset in dB at a frequency: tilt plus all active bands (used by DSP and display). */
     static float sensitivityDb (const Settings&, float hz) noexcept;
+
+    /** Contribution of a single band in dB at a frequency (ignores band.on). */
+    static float bandCurveDb (const Band&, float hz) noexcept;
+
+    /** 0..1: how much processing is allowed at a frequency. 1 everywhere unless a
+        band-pass band is active; then 1 inside band-pass bands and 0 outside. */
+    static float focusWeight (const Settings&, float hz) noexcept;
 
     //==============================================================================
     // Lock-free display data (written by the audio thread once per frame).
@@ -140,7 +168,9 @@ private:
     // Frequency tables (bin index ranges, weights), rebuilt when settings change
     std::vector<int> envLo, envHi, redLo, redHi;
     std::vector<float> rangeWeight, sensitivity;
-    float tSharpness = -1.0f, tLow = -1.0f, tHigh = -1.0f, tTilt = -100.0f, tEmphHz = -1.0f, tEmphDb = -100.0f;
+    float tSharpness = -1.0f, tLow = -1.0f, tHigh = -1.0f, tTilt = -100.0f;
+    std::array<Band, numBands> tBands {};
+    bool tablesValid = false;
 
     std::unique_ptr<std::atomic<float>[]> displayLevelDb, displaySidechainDb, displayReductionDb, displayOutputDb;
     std::atomic<int> numDisplayBins { 0 };
