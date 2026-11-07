@@ -196,7 +196,7 @@ int main (int argc, char** argv)
     {
         if (dragMode)
             simulateBandDrag (processor, *editor);
-        if (bandsMode || overlapMode)
+        if (! sidechainMode && ! dragMode)   // show the band strip with a selected band
             if (auto* view = findSpectrum (*editor))
                 view->setSelectedBand (overlapMode ? 1 : 0);
 
